@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ku" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LuminaStream | Master Time Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap');
+
+        :root {
+            --accent: #6366f1;
+            --tv-yellow: #facc15;
+            --bg: #050505;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: #ffffff;
+            font-family: 'Noto Sans Arabic', sans-serif;
+            overflow: hidden;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .focusable {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            outline: none;
+            border: 2px solid transparent;
+        }
+        .focusable:focus-within, .focusable:active {
+            transform: scale(1.02);
+            border-color: var(--tv-yellow);
+            background: rgba(255, 255, 255, 0.1) !important;
+            z-index: 10;
+        }
+
+        .active-filter { background: var(--accent) !important; color: white !important; }
+
+        .video-wrapper {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            position: relative;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        #video-core { width: 100%; height: 100%; object-fit: contain; }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .app-hidden { display: none !important; }
+
+        .clock-font { font-family: 'JetBrains Mono', monospace; }
+
+        .channel-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
+            transition: all 0.2s;
+        }
+        .channel-card.active-play { border-color: var(--accent); background: rgba(99, 102, 241, 0.1); }
+
+        @media (max-width: 1024px) {
+            .main-layout { flex-direction: column; overflow-y: auto; }
+            .sidebar { width: 100% !important; order: 2; padding: 1.5rem !important; }
+            .content-area { order: 1; overflow: visible !important; }
+            body { overflow: auto; }
+            .video-wrapper { border-radius: 0; }
+            .time-banner { font-size: 1.25rem !important; }
+        }
+    </style>
+</head>
+<body class="h-screen w-screen">
+
+    <!-- LOGIN SCREEN -->
+    <div id="access-portal" class="fixed inset-0 z-[10000] flex items-center justify-center bg-black p-6">
+        <div class="max-w-md w-full space-y-8 text-center">
+            <div class="w-24 h-24 bg-indigo-600 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl">
+                <i class="fas fa-play text-4xl"></i>
+            </div>
+            <h1 class="text-4xl font-black italic">LUMINA</h1>
+            <div class="space-y-4">
+                <input type="text" id="auth-code" placeholder="کۆدێ چوونەژوورێ" 
+                    class="w-full bg-zinc-900 border-2 border-transparent focus:border-indigo-500 p-5 rounded-2xl text-center text-xl font-bold outline-none">
+                <button onclick="verifyCode()" class="focusable w-full bg-white text-black py-5 rounded-2xl font-black uppercase text-sm">دەستپێکرن</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="main-app" class="app-hidden flex main-layout h-full w-full">
+        
+        <!-- SIDEBAR -->
+        <aside class="sidebar w-72 h-full bg-[#080808] border-l border-white/5 flex flex-col p-8 shrink-0">
+            <h2 class="text-3xl font-black italic text-indigo-500 mb-2 text-right">LUMINA</h2>
+            
+            <div class="bg-white/5 rounded-xl p-3 mb-6 border border-white/5">
+                <p class="text-[9px] text-zinc-500 font-bold uppercase mb-1">کۆدێ کارا</p>
+                <p id="display-active-code" class="text-sm font-black tracking-widest text-indigo-300">-----</p>
+            </div>
+
+            <nav class="space-y-3 flex-1">
+                <button onclick="openModal('import-modal')" class="focusable w-full flex items-center gap-4 p-4 rounded-xl bg-white/5 text-zinc-300 font-bold">
+                    <i class="fas fa-plus-circle"></i>
+                    <span>زێدەکرنا لیستی</span>
+                </button>
+                <div class="h-px bg-white/5 my-4"></div>
+                <button onclick="logout()" class="w-full text-right p-4 text-xs font-bold text-zinc-700 hover:text-red-500 uppercase">دەرکەفتن</button>
+            </nav>
+            
+            <div class="mt-auto text-center opacity-30">
+                <p class="text-[10px] font-bold uppercase tracking-widest">Master OS v12</p>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main class="content-area flex-1 h-full overflow-hidden flex flex-col">
+            
+            <!-- TIME HEADER -->
+            <header class="px-4 py-3 md:px-8 md:pt-8 flex justify-between items-center bg-black/20">
+                <div class="flex flex-col">
+                    <span id="date-display" class="text-[10px] font-bold text-zinc-500 uppercase tracking-tighter">Thursday, Dec 18</span>
+                    <h3 id="now-playing-header" class="text-sm font-black text-indigo-400 uppercase truncate max-w-[150px] md:max-w-none">Live Stream</h3>
+                </div>
+                <div class="flex items-center gap-3 bg-zinc-900 border border-white/10 px-4 py-2 rounded-2xl shadow-lg">
+                    <i class="fas fa-clock text-indigo-500 text-xs"></i>
+                    <span id="main-clock" class="clock-font text-2xl md:text-3xl font-black text-white leading-none">00:00:00</span>
+                </div>
+            </header>
+
+            <!-- VIDEO -->
+            <section class="p-4 md:p-8 pt-4 pb-4">
+                <div class="video-wrapper shadow-2xl">
+                    <video id="video-core" playsinline controls></video>
+                    <div id="video-info" class="absolute top-0 right-0 p-6 bg-gradient-to-b from-black/80 to-transparent pointer-events-none opacity-0 transition-opacity">
+                        <p id="now-group" class="text-indigo-400 text-[10px] font-bold uppercase mb-1">کەناڵ</p>
+                        <h3 id="now-playing" class="text-2xl font-black uppercase tracking-tight italic">...</h3>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CONTROLS & GRID -->
+            <section class="flex-1 overflow-y-auto no-scrollbar p-4 md:p-8 pt-0">
+                
+                <div class="flex flex-col md:flex-row items-center gap-4 mb-6 bg-zinc-900/40 p-4 rounded-2xl sticky top-0 z-20 backdrop-blur-md border border-white/5">
+                    <div class="flex gap-2 w-full md:w-auto">
+                        <button onclick="setView('all')" id="btn-all" class="focusable flex-1 md:flex-none px-6 py-3 rounded-xl font-black text-xs uppercase bg-white/5 text-zinc-400 active-filter">هەمی</button>
+                        <button onclick="setView('fav')" id="btn-fav" class="focusable flex-1 md:flex-none px-6 py-3 rounded-xl font-black text-xs uppercase bg-white/5 text-zinc-400">دلخواز</button>
+                    </div>
+                    <div class="relative flex-1 w-full">
+                        <i class="fas fa-search absolute right-4 top-1/2 -translate-y-1/2 text-zinc-600 text-xs"></i>
+                        <input type="text" id="search-box" placeholder="لێگەریان..." 
+                            class="w-full bg-black/50 rounded-xl py-3 pr-12 pl-4 text-xs outline-none border border-transparent focus:border-indigo-500">
+                    </div>
+                </div>
+
+                <div id="channel-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                    <!-- Dynamic Content -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- IMPORT MODAL -->
+    <div id="import-modal" class="fixed inset-0 z-[11000] bg-black/95 backdrop-blur-md flex items-center justify-center hidden p-6">
+        <div class="bg-zinc-900 w-full max-w-sm p-8 rounded-[2.5rem] border border-white/10 space-y-6">
+            <h3 class="text-xl font-black text-center italic">زێدەکرنا کەناڵان</h3>
+            <input type="text" id="m3u-url" placeholder="لینکێ M3U" class="w-full bg-black p-4 rounded-xl text-sm text-left outline-none border border-transparent focus:border-indigo-500" dir="ltr">
+            <div class="flex gap-2">
+                <button onclick="handleUrl()" class="focusable flex-1 bg-indigo-600 py-4 rounded-xl font-bold text-xs uppercase">گرێدان</button>
+                <label class="focusable flex-1 bg-white text-black py-4 rounded-xl font-bold text-xs text-center cursor-pointer uppercase">
+                    فایل
+                    <input type="file" id="m3u-file" class="hidden" accept=".m3u,.m3u8,.txt">
+                </label>
+            </div>
+            <button onclick="closeModal('import-modal')" class="w-full text-zinc-600 font-bold text-[10px] uppercase text-center">پاشڤەچوون</button>
+        </div>
+    </div>
+
+    <script>
+        const CODES = {'LUM7-7788': 7, 'LUM30-9922': 30, 'LUM-LIFE-0000': 99999};
+        let channels = JSON.parse(localStorage.getItem('lum_ch_v12') || '[]');
+        let favorites = JSON.parse(localStorage.getItem('lum_fv_v12') || '[]');
+        let session = JSON.parse(localStorage.getItem('lum_ss_v12') || 'null');
+        let viewMode = 'all';
+        let hls = null;
+        let activeId = null;
+
+        window.onload = () => {
+            initSession();
+            startClock();
+            render();
+            document.getElementById('m3u-file').addEventListener('change', handleFileUpload);
+            document.getElementById('search-box').addEventListener('input', render);
+        };
+
+        function startClock() {
+            const clockEl = document.getElementById('main-clock');
+            const dateEl = document.getElementById('date-display');
+            
+            const update = () => {
+                const now = new Date();
+                clockEl.textContent = now.toLocaleTimeString('en-GB', { hour12: false });
+                dateEl.textContent = now.toLocaleDateString('en-GB', { weekday: 'long', month: 'short', day: 'numeric' });
+            };
+            
+            update();
+            setInterval(update, 1000);
+        }
+
+        function verifyCode() {
+            const val = document.getElementById('auth-code').value.trim().toUpperCase();
+            if (CODES[val]) {
+                const exp = new Date();
+                exp.setDate(exp.getDate() + CODES[val]);
+                session = { expires: exp.toISOString(), code: val };
+                localStorage.setItem('lum_ss_v12', JSON.stringify(session));
+                initSession();
+            } else {
+                const input = document.getElementById('auth-code');
+                input.classList.add('border-red-500');
+                setTimeout(() => input.classList.remove('border-red-500'), 1500);
+            }
+        }
+
+        function initSession() {
+            const portal = document.getElementById('access-portal');
+            const app = document.getElementById('main-app');
+            if (session && new Date(session.expires) > new Date()) {
+                portal.classList.add('app-hidden');
+                app.classList.remove('app-hidden');
+                document.getElementById('display-active-code').textContent = session.code || "---";
+            }
+        }
+
+        function render() {
+            const grid = document.getElementById('channel-grid');
+            const search = document.getElementById('search-box').value.toLowerCase();
+            grid.innerHTML = '';
+            
+            let list = [...channels];
+            if (search) list = list.filter(c => c.name.toLowerCase().includes(search));
+            if (viewMode === 'fav') list = list.filter(c => favorites.includes(c.id));
+
+            if (list.length === 0) {
+                grid.innerHTML = `<div class="col-span-full py-10 text-center text-zinc-800 font-bold italic">لیست یا تالبە</div>`;
+                return;
+            }
+
+            list.forEach((c, index) => {
+                const isFav = favorites.includes(c.id);
+                const card = document.createElement('div');
+                card.className = `focusable channel-card p-4 rounded-2xl cursor-pointer flex items-center justify-between gap-3 ${activeId === c.id ? 'active-play' : ''}`;
+                card.tabIndex = 0;
+                card.onclick = () => play(c.id);
+                
+                card.innerHTML = `
+                    <div class="flex items-center gap-4 flex-1 min-w-0">
+                        <span class="text-[10px] font-black text-zinc-700 bg-white/5 w-8 h-8 rounded-lg flex items-center justify-center">${index + 1}</span>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-[9px] text-indigo-400 font-bold uppercase mb-0.5">${c.group}</p>
+                            <h4 class="font-bold text-sm truncate uppercase tracking-tight">${c.name}</h4>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <button onclick="event.stopPropagation(); moveChannel(${index}, -1)" class="p-2 text-zinc-600 hover:text-white"><i class="fas fa-chevron-up text-[10px]"></i></button>
+                        <button onclick="event.stopPropagation(); moveChannel(${index}, 1)" class="p-2 text-zinc-600 hover:text-white"><i class="fas fa-chevron-down text-[10px]"></i></button>
+                        <button onclick="event.stopPropagation(); toggleFav('${c.id}')" class="p-2 ${isFav ? 'text-red-500' : 'text-zinc-700'}"><i class="${isFav ? 'fas' : 'far'} fa-heart"></i></button>
+                        <button onclick="event.stopPropagation(); removeChannel('${c.id}')" class="p-2 text-zinc-800 hover:text-red-600"><i class="fas fa-trash-alt text-[10px]"></i></button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function play(id) {
+            const chan = channels.find(x => x.id === id);
+            if (!chan) return;
+            activeId = id;
+            render();
+
+            const video = document.getElementById('video-core');
+            const info = document.getElementById('video-info');
+            document.getElementById('now-playing').textContent = chan.name;
+            document.getElementById('now-playing-header').textContent = chan.name;
+            document.getElementById('now-group').textContent = chan.group;
+            
+            info.style.opacity = '1';
+            setTimeout(() => info.style.opacity = '0', 4000);
+
+            if (Hls.isSupported()) {
+                if (hls) hls.destroy();
+                hls = new Hls();
+                hls.loadSource(chan.url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(()=>{}));
+            } else {
+                video.src = chan.url;
+                video.play().catch(()=>{});
+            }
+
+            if (window.innerWidth < 1024) window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function moveChannel(index, direction) {
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= channels.length) return;
+            const element = channels.splice(index, 1)[0];
+            channels.splice(newIndex, 0, element);
+            saveAndRender();
+        }
+
+        function removeChannel(id) {
+            if (confirm("دێ ڤی کەناڵی ژناڤ بەین؟")) {
+                channels = channels.filter(c => c.id !== id);
+                saveAndRender();
+            }
+        }
+
+        function saveAndRender() {
+            localStorage.setItem('lum_ch_v12', JSON.stringify(channels));
+            render();
+        }
+
+        function setView(v) {
+            viewMode = v;
+            document.getElementById('btn-all').classList.toggle('active-filter', v === 'all');
+            document.getElementById('btn-fav').classList.toggle('active-filter', v === 'fav');
+            render();
+        }
+
+        function toggleFav(id) {
+            favorites = favorites.includes(id) ? favorites.filter(x => x !== id) : [...favorites, id];
+            localStorage.setItem('lum_fv_v12', JSON.stringify(favorites));
+            render();
+        }
+
+        function logout() {
+            if (confirm("Reset System?")) { localStorage.clear(); window.location.reload(); }
+        }
+
+        function parse(text) {
+            const lines = text.split(/\r?\n/);
+            const res = [];
+            let cur = null;
+            lines.forEach(l => {
+                l = l.trim();
+                if (l.startsWith('#EXTINF:')) {
+                    const name = l.split(',').pop() || 'Untitled';
+                    const group = (l.match(/group-title="([^"]+)"/) || [])[1] || 'GENERAL';
+                    cur = { id: Math.random().toString(36).substr(2, 9), name, group };
+                } else if (l.startsWith('http')) {
+                    if (cur) { cur.url = l; res.push(cur); cur = null; }
+                }
+            });
+            return res;
+        }
+
+        async function handleFileUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const text = await file.text();
+            channels = parse(text);
+            saveAndRender();
+            closeModal('import-modal');
+        }
+
+        function handleUrl() {
+            const url = document.getElementById('m3u-url').value.trim();
+            fetch(url).then(r => r.text()).then(t => {
+                channels = parse(t);
+                saveAndRender();
+                closeModal('import-modal');
+            }).catch(() => alert("Error: CORS restriction. Use file upload."));
+        }
+
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+    </script>
+</body>
+</html>
+
